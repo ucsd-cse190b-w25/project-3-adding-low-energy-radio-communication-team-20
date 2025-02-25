@@ -20,6 +20,10 @@
 /* Includes ------------------------------------------------------------------*/
 //#include "ble_commands.h"
 #include "ble.h"
+#include "i2c.h"
+#include "timer.h"
+#include "leds.h"
+#include "lsm6dsl.h"
 
 #include <stdlib.h>
 
