@@ -26,7 +26,7 @@ void timer_init(TIM_TypeDef *timer)
 	timer->SR = 0;
 
 	// setup prescaler(for frequency)
-	timer->PSC = 3999;
+	timer->PSC = 7999;
 
 	// set up interrupt with priority level to 0
 	NVIC_SetPriority(TIM2_IRQn, 0);
@@ -57,7 +57,8 @@ void timer_set_ms(TIM_TypeDef *timer, uint16_t period_ms)
 {
 	// TODO implement this
 
-	uint32_t default_frequency = 4000; // 4000000 ticks/s -> 4000 ticks/ms
+	// MSI Clock is 8M Hz
+	uint32_t default_frequency = 8000; // 8000000 ticks/s -> 8000 ticks/ms
 
 	// ARR calculation = (default_frequency / freqTimer) / (timer->PSC + 1) - 1;
 	timer->ARR = (default_frequency * period_ms) / (timer->PSC + 1) - 1;

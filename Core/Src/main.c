@@ -25,7 +25,23 @@
 #include "leds.h"
 #include "lsm6dsl.h"
 
+/* Include memory map of our MCU */
+#include <stm32l475xx.h>
 #include <stdlib.h>
+#include <stdint.h>
+#include <stdio.h>
+
+#define MAX_ACCELERATION_RANGE 18000
+#define MIN_ACCELERATION_RANGE 15000
+#define TIMER_PERIOD 50
+#define LOST_COUNT_START_BLINK 1200
+
+// declare it as volatile to avoid compiler optimization
+static volatile int count = 0, lost_count = 0;
+static volatile int32_t magnitude = 0;
+
+static volatile char LED_FLASH_PATTERN[33] = "10011001001001001010010100000000"; // REAL ID is 9381
+// 10, 01, 10, 01, 00, 10, 01, 00, 10, 10, 01, 01, (00, 00, 00, 00), quoted is min
 
 int dataAvailable = 0;
 
@@ -34,6 +50,120 @@ SPI_HandleTypeDef hspi3;
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_SPI3_Init(void);
+
+// Redefine the libc _write() function so you can use printf in your code
+int _write(int file, char *ptr, int len)
+{
+	int i = 0;
+	for (i = 0; i < len; i++)
+	{
+		ITM_SendChar(*ptr++);
+	}
+	return len;
+}
+
+// helper function
+static uint8_t get_Led(char c1, char c2)
+{
+	if (c1 == '0' && c2 == '1')
+		return 1;
+	if (c1 == '1' && c2 == '0')
+		return 2;
+	if (c1 == '1' && c2 == '1')
+		return 3;
+	return 0;
+}
+
+static void light_LED_pattern()
+{
+	// map the count to indices, for example 0 -> 0, 1 -> 2, 2->4, 3->6
+	// since the interrupt will increment count first, then we light, we must subtract count by 1 to get the correct LED
+	int idx = (count - 1) * 2;
+	// get the current count and map to the pattern to flash
+	char c1 = LED_FLASH_PATTERN[idx];
+	char c2 = LED_FLASH_PATTERN[idx + 1];
+	uint8_t led = get_Led(c1, c2);
+	// light LED
+	leds_set(led);
+}
+
+void TIM2_IRQHandler()
+{
+	// only doing count update in the interrupt handler
+
+	// if it's within the range, then it's not moving, increment the lost_count by 1
+	if (magnitude <= MAX_ACCELERATION_RANGE && magnitude >= MIN_ACCELERATION_RANGE)
+		lost_count++;
+	else
+		lost_count = 0;
+
+	// only start counting when it's lost for over 60 seconds
+	if (lost_count >= LOST_COUNT_START_BLINK)
+	{
+		// increment the counter if it's not out of bound, else reset it to 0
+		if (count < 16)
+			count++;
+		else
+			count = 0;
+	}
+
+	// clearing the interrupt bit
+	if (TIM2->SR & TIM_SR_UIF)
+		TIM2->SR &= ~TIM_SR_UIF;
+}
+
+// Fast Square Root Algorithm, it will compute the square root of x
+static uint32_t fast_sqrt(uint32_t x)
+{
+	uint32_t res = 0;
+	uint32_t bit_mask = 1 << 30;
+
+	while (bit_mask > x)
+		bit_mask >>= 2;
+
+	while (bit_mask != 0)
+	{
+		if (x >= res + bit_mask)
+		{
+			x -= res + bit_mask;
+			res += bit_mask << 1;
+		}
+		res >>= 1;
+		bit_mask >>= 2;
+	}
+	return res;
+}
+
+// helper to update the minute as byte sequence into the pattern string
+static void update_min_string(int flag)
+{
+	const static int offset = 24;
+	// flag = 1 for lost mode minute update, and 0 for moving(not lost) reset
+
+	// set the string last 8 char to be minute
+	if (flag == 1)
+	{
+		// calculate the minute
+
+		int minute = lost_count / LOST_COUNT_START_BLINK;
+		// convert int to binary string
+		for (int i = 7; i >= 0; --i)
+		{
+			if (minute & (1 << i))
+				LED_FLASH_PATTERN[offset + 7 - i] = '1';
+			else
+				LED_FLASH_PATTERN[offset + 7 - i] = '0';
+		}
+	}
+	// reset the string last 8 char to be 0
+	else
+	{
+		for (int i = 0; i <= 7; ++i)
+		{
+			LED_FLASH_PATTERN[offset + i] = '0';
+		}
+	}
+}
 
 /**
  * @brief  The application entry point.
@@ -57,24 +187,57 @@ int main(void)
 	HAL_GPIO_WritePin(BLE_RESET_GPIO_Port, BLE_RESET_Pin, GPIO_PIN_SET);
 
 	ble_init();
-
 	HAL_Delay(10);
-
 	uint8_t nonDiscoverable = 0;
+
+	// init LED, timer, i2c, and lsm6dsl
+	leds_init();
+	timer_init(TIM2);
+	lsm6dsl_init();
+
+	// set the period in ms
+	timer_set_ms(TIM2, TIMER_PERIOD);
+	int16_t x = 0, y = 0, z = 0;
+	long long xs = 0, ys = 0, zs = 0, sqrt_sum = 0;
+	printf("If\n");
 
 	while (1)
 	{
-		if (!nonDiscoverable && HAL_GPIO_ReadPin(BLE_INT_GPIO_Port, BLE_INT_Pin))
+		// read the raw x y z acceleration value, and compute its magnitude
+		lsm6dsl_read_xyz(&x, &y, &z);
+		xs = x * x;
+		ys = y * y;
+		zs = z * z;
+		sqrt_sum = xs + ys + zs;
+		magnitude = fast_sqrt(sqrt_sum);
+
+		// the lost detection check is in the tim2 interrupt handler
+		// if it's over 60 seconds, it's lost. Each timer tick is 50ms, to be 60s, it has to tick 1200 times
+		if (lost_count >= LOST_COUNT_START_BLINK)
 		{
-			catchBLE();
+			update_min_string(1);
+			light_LED_pattern();
 		}
+		// it's not lost, turn off LED
 		else
 		{
-			HAL_Delay(1000);
-			// Send a string to the NORDIC UART service, remember to not include the newline
-			unsigned char test_str[] = "CSE190 too hard";
-			updateCharValue(NORDIC_UART_SERVICE_HANDLE, READ_CHAR_HANDLE, 0, sizeof(test_str) - 1, test_str);
+			update_min_string(0);
+			leds_set(0);
 		}
+
+//		if (!nonDiscoverable && HAL_GPIO_ReadPin(BLE_INT_GPIO_Port, BLE_INT_Pin))
+//		{
+//			printf("If\n");
+//			catchBLE();
+//		}
+//		else
+//		{
+//			printf("Else\n");
+//			HAL_Delay(1000);
+//			// Send a string to the NORDIC UART service, remember to not include the newline
+//			unsigned char test_str[] = "CSE190 too hard";
+//			updateCharValue(NORDIC_UART_SERVICE_HANDLE, READ_CHAR_HANDLE, 0, sizeof(test_str) - 1, test_str);
+//		}
 		// Wait for interrupt, only uncomment if low power is needed
 		//__WFI();
 	}
