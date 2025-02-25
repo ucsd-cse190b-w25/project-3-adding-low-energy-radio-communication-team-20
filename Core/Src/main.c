@@ -28,6 +28,7 @@
 /* Include memory map of our MCU */
 #include <stm32l475xx.h>
 #include <stdlib.h>
+#include <string.h>
 #include <stdint.h>
 #include <stdio.h>
 
@@ -35,13 +36,14 @@
 #define MIN_ACCELERATION_RANGE 15000
 #define TIMER_PERIOD 50
 #define LOST_COUNT_START_BLINK 1200
+#define BUFFER_SZ 20
+#define TEN_SECONDS_DIV 200
+
+#define MINIUTE_LOST(ten_sec_count) (((ten_sec_count) * 10) / 60 + 1)
 
 // declare it as volatile to avoid compiler optimization
-static volatile int count = 0, lost_count = 0;
+static volatile int count = 0, lost_count = 0, ten_seconds_count = 0, ten_seconds_flag = 0, min_lost = 0;
 static volatile int32_t magnitude = 0;
-
-static volatile char LED_FLASH_PATTERN[33] = "10011001001001001010010100000000"; // REAL ID is 9381
-// 10, 01, 10, 01, 00, 10, 01, 00, 10, 10, 01, 01, (00, 00, 00, 00), quoted is min
 
 int dataAvailable = 0;
 
@@ -62,31 +64,6 @@ int _write(int file, char *ptr, int len)
 	return len;
 }
 
-// helper function
-static uint8_t get_Led(char c1, char c2)
-{
-	if (c1 == '0' && c2 == '1')
-		return 1;
-	if (c1 == '1' && c2 == '0')
-		return 2;
-	if (c1 == '1' && c2 == '1')
-		return 3;
-	return 0;
-}
-
-static void light_LED_pattern()
-{
-	// map the count to indices, for example 0 -> 0, 1 -> 2, 2->4, 3->6
-	// since the interrupt will increment count first, then we light, we must subtract count by 1 to get the correct LED
-	int idx = (count - 1) * 2;
-	// get the current count and map to the pattern to flash
-	char c1 = LED_FLASH_PATTERN[idx];
-	char c2 = LED_FLASH_PATTERN[idx + 1];
-	uint8_t led = get_Led(c1, c2);
-	// light LED
-	leds_set(led);
-}
-
 void TIM2_IRQHandler()
 {
 	// only doing count update in the interrupt handler
@@ -100,11 +77,13 @@ void TIM2_IRQHandler()
 	// only start counting when it's lost for over 60 seconds
 	if (lost_count >= LOST_COUNT_START_BLINK)
 	{
-		// increment the counter if it's not out of bound, else reset it to 0
-		if (count < 16)
-			count++;
-		else
-			count = 0;
+		// every 10S, turn the flag to 1, 50ms counting 200 times is 10s
+		if (count % TEN_SECONDS_DIV == 0)
+		{
+			ten_seconds_count++;
+			ten_seconds_flag = 1;
+		}
+		count++;
 	}
 
 	// clearing the interrupt bit
@@ -132,37 +111,6 @@ static uint32_t fast_sqrt(uint32_t x)
 		bit_mask >>= 2;
 	}
 	return res;
-}
-
-// helper to update the minute as byte sequence into the pattern string
-static void update_min_string(int flag)
-{
-	const static int offset = 24;
-	// flag = 1 for lost mode minute update, and 0 for moving(not lost) reset
-
-	// set the string last 8 char to be minute
-	if (flag == 1)
-	{
-		// calculate the minute
-
-		int minute = lost_count / LOST_COUNT_START_BLINK;
-		// convert int to binary string
-		for (int i = 7; i >= 0; --i)
-		{
-			if (minute & (1 << i))
-				LED_FLASH_PATTERN[offset + 7 - i] = '1';
-			else
-				LED_FLASH_PATTERN[offset + 7 - i] = '0';
-		}
-	}
-	// reset the string last 8 char to be 0
-	else
-	{
-		for (int i = 0; i <= 7; ++i)
-		{
-			LED_FLASH_PATTERN[offset + i] = '0';
-		}
-	}
 }
 
 /**
@@ -199,7 +147,8 @@ int main(void)
 	timer_set_ms(TIM2, TIMER_PERIOD);
 	int16_t x = 0, y = 0, z = 0;
 	long long xs = 0, ys = 0, zs = 0, sqrt_sum = 0;
-	printf("If\n");
+
+	unsigned char buffer[BUFFER_SZ];
 
 	while (1)
 	{
@@ -215,29 +164,30 @@ int main(void)
 		// if it's over 60 seconds, it's lost. Each timer tick is 50ms, to be 60s, it has to tick 1200 times
 		if (lost_count >= LOST_COUNT_START_BLINK)
 		{
-			update_min_string(1);
-			light_LED_pattern();
+			if (!nonDiscoverable && HAL_GPIO_ReadPin(BLE_INT_GPIO_Port, BLE_INT_Pin))
+			{
+				catchBLE();
+			}
+			else
+			{
+				if (ten_seconds_flag)
+				{
+					// Send a string to the NORDIC UART service, remember to not include the newline
+					min_lost = MINIUTE_LOST(ten_seconds_count);
+					snprintf((char*) buffer, sizeof(buffer), "LOST %d MIN", min_lost);
+					updateCharValue(NORDIC_UART_SERVICE_HANDLE, READ_CHAR_HANDLE, 0, strlen((char*) buffer), buffer);
+					ten_seconds_flag = 0;
+				}
+			}
 		}
-		// it's not lost, turn off LED
+		// it's not lost
 		else
 		{
-			update_min_string(0);
-			leds_set(0);
+			count = 0;
+			ten_seconds_count = 0;
+			ten_seconds_flag = 0;
 		}
 
-//		if (!nonDiscoverable && HAL_GPIO_ReadPin(BLE_INT_GPIO_Port, BLE_INT_Pin))
-//		{
-//			printf("If\n");
-//			catchBLE();
-//		}
-//		else
-//		{
-//			printf("Else\n");
-//			HAL_Delay(1000);
-//			// Send a string to the NORDIC UART service, remember to not include the newline
-//			unsigned char test_str[] = "CSE190 too hard";
-//			updateCharValue(NORDIC_UART_SERVICE_HANDLE, READ_CHAR_HANDLE, 0, sizeof(test_str) - 1, test_str);
-//		}
 		// Wait for interrupt, only uncomment if low power is needed
 		//__WFI();
 	}
