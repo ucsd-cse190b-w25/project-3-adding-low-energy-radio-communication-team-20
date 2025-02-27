@@ -243,20 +243,23 @@ void sendCommand(uint8_t *command, int size)
 
 }
 
-void catchBLE()
+void catchBLE(uint8_t *byte1, uint8_t *byte2)
 {
 	int result = fetchBleEvent(buffer, 127);
 	if (result == BLE_OK)
 	{
 		if (checkEventResp(buffer, EVENT_DISCONNECTED, 3) == BLE_OK)
 		{
-			// This automatically sets your device to be discoverable
-			// as soon as it disconnects from a device
-			setConnectable();
+			//setConnectable();
 		}
 		if (checkEventResp(buffer, EVENT_CONNECTED, 5) == BLE_OK)
 		{
 			// Little Endian Format
+			*(connectionHandler) = buffer[5];
+			*(connectionHandler + 1) = buffer[6];
+		}
+		if (checkEventResp(buffer, EVENT_GATT_CHANGED, 5) == BLE_OK)
+		{
 			*(connectionHandler) = buffer[5];
 			*(connectionHandler + 1) = buffer[6];
 		}
@@ -273,7 +276,7 @@ void setConnectable()
 	//Start advertising
 	uint8_t *localname;
 	int res;
-	localname = (uint8_t*) malloc(sizeof(deviceName) + 5);			  //carattere di terminazione+listauid+slavetemp
+	localname = (uint8_t*) malloc(sizeof(deviceName) + 5);	   //carattere di terminazione+listauid+slavetemp
 	memcpy(localname, deviceName, sizeof(deviceName));
 	localname[sizeof(deviceName) + 1] = 0x00;
 	localname[sizeof(deviceName) + 2] = 0x00;
@@ -409,7 +412,7 @@ void disconnectBLE()
 {
 	if (connectionHandler[0] == -1 && connectionHandler[1] == -1)
 	{
-		// should not be -1. If -1, then no connection was made at the first place!
+		// should not be -1
 		return;
 	}
 	uint8_t command[7];
@@ -417,13 +420,20 @@ void disconnectBLE()
 	command[4] = connectionHandler[0];
 	command[5] = connectionHandler[1];
 	command[6] = 0x13;
-	if (BLE_command(command, sizeof(command), EVENT_DISCONNECTED, 3, 0) == BLE_OK)
+	if (BLE_command(command, sizeof(command), EVENT_DISCONNECT_PENDING, 7, 0) == BLE_OK)
 	{
-		connectionHandler[0] = -1;
-		connectionHandler[1] = -1;
+		int result = fetchBleEvent(buffer, 127);
+		if (result == BLE_OK)
+		{
+			if (checkEventResp(buffer, EVENT_DISCONNECTED, 4) == BLE_OK)
+			{
+				//setConnectable();
+				connectionHandler[0] = -1;
+				connectionHandler[1] = -1;
+			}
+		}
+		free(rxEvent);
 	}
-	free(rxEvent);
-
 }
 
 /**
@@ -442,6 +452,7 @@ void setDiscoverability(uint8_t mode)
 		if (BLE_command(ACI_GAP_SET_NON_DISCOVERABLE, sizeof(ACI_GAP_SET_NON_DISCOVERABLE), ACI_GAP_SET_NON_DISCOVERABLE_COMPLETE, sizeof(ACI_GAP_SET_NON_DISCOVERABLE_COMPLETE), 0) == BLE_OK)
 		{
 		}
+		free(rxEvent);
 	}
 	else
 	{

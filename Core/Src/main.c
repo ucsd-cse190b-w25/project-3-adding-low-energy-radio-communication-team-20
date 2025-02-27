@@ -32,19 +32,26 @@
 #include <stdint.h>
 #include <stdio.h>
 
+// utils for formatting message that's sending to phone
+#define PTAG20_FORMAT "PTAG20 LOST %d\'s"
+//#define TEST_ENV
+
 #define MAX_ACCELERATION_RANGE 18000
 #define MIN_ACCELERATION_RANGE 15000
 #define TIMER_PERIOD 50
-#define LOST_COUNT_START_BLINK 1200
 #define BUFFER_SZ 20
 #define TEN_SECONDS_DIV 200
 
-#define MINIUTE_LOST(ten_sec_count) (((ten_sec_count) * 10) / 60 + 1)
+// adjust to 20s for lost mode in TEST ENV
+#ifdef TEST_ENV
+#define LOST_COUNT_START_BLINK 400
+#else
+#define LOST_COUNT_START_BLINK 1200
+#endif
 
 // declare it as volatile to avoid compiler optimization
-static volatile int count = 0, lost_count = 0, ten_seconds_count = 0, ten_seconds_flag = 0, min_lost = 0;
-static volatile int32_t magnitude = 0;
-
+static volatile int count = 0, lost_count = 0, ten_seconds_count = 0, ten_seconds_flag = 0;
+static volatile int sec_lost = 0, magnitude = 0, discoverable_flag = 1;
 int dataAvailable = 0;
 
 SPI_HandleTypeDef hspi3;
@@ -67,7 +74,6 @@ int _write(int file, char *ptr, int len)
 void TIM2_IRQHandler()
 {
 	// only doing count update in the interrupt handler
-
 	// if it's within the range, then it's not moving, increment the lost_count by 1
 	if (magnitude <= MAX_ACCELERATION_RANGE && magnitude >= MIN_ACCELERATION_RANGE)
 		lost_count++;
@@ -148,10 +154,15 @@ int main(void)
 	int16_t x = 0, y = 0, z = 0;
 	long long xs = 0, ys = 0, zs = 0, sqrt_sum = 0;
 
+	// for storing message
 	unsigned char buffer[BUFFER_SZ];
 
 	while (1)
 	{
+		// capture connection handler
+		if (!nonDiscoverable && HAL_GPIO_ReadPin(BLE_INT_GPIO_Port, BLE_INT_Pin))
+			catchBLE();
+
 		// read the raw x y z acceleration value, and compute its magnitude
 		lsm6dsl_read_xyz(&x, &y, &z);
 		xs = x * x;
@@ -164,28 +175,42 @@ int main(void)
 		// if it's over 60 seconds, it's lost. Each timer tick is 50ms, to be 60s, it has to tick 1200 times
 		if (lost_count >= LOST_COUNT_START_BLINK)
 		{
-			if (!nonDiscoverable && HAL_GPIO_ReadPin(BLE_INT_GPIO_Port, BLE_INT_Pin))
+			// set it to be discoverable
+			if (!discoverable_flag)
 			{
-				catchBLE();
+				setDiscoverability(1);
+				discoverable_flag = 1;
 			}
-			else
+
+			// every 10s, send a message
+			if (ten_seconds_flag)
 			{
-				if (ten_seconds_flag)
-				{
-					// Send a string to the NORDIC UART service, remember to not include the newline
-					min_lost = MINIUTE_LOST(ten_seconds_count);
-					snprintf((char*) buffer, sizeof(buffer), "LOST %d MIN", min_lost);
-					updateCharValue(NORDIC_UART_SERVICE_HANDLE, READ_CHAR_HANDLE, 0, strlen((char*) buffer), buffer);
-					ten_seconds_flag = 0;
-				}
+				// Send a string to the NORDIC UART service, remember to not include the newline
+				sec_lost = ten_seconds_count * 10;
+				snprintf((char*) buffer, sizeof(buffer), PTAG20_FORMAT, sec_lost);
+				updateCharValue(NORDIC_UART_SERVICE_HANDLE, READ_CHAR_HANDLE, 0, strlen((char*) buffer), buffer);
+				ten_seconds_flag = 0;
 			}
+			// if lost light up LED1 to indicate so
+			leds_set(1);
 		}
 		// it's not lost
 		else
 		{
+			// keep resetting the counter if it's not lost
 			count = 0;
 			ten_seconds_count = 0;
 			ten_seconds_flag = 0;
+
+			// disconnect then set it to be non discoverable
+			if (discoverable_flag)
+			{
+				disconnectBLE();
+				setDiscoverability(0);
+				discoverable_flag = 0;
+			}
+			// if not lost turn off LED
+			leds_set(0);
 		}
 
 		// Wait for interrupt, only uncomment if low power is needed
@@ -218,7 +243,7 @@ void SystemClock_Config(void)
 	RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_MSI;
 	RCC_OscInitStruct.MSIState = RCC_MSI_ON;
 	RCC_OscInitStruct.MSICalibrationValue = 0;
-	// This lines changes system clock frequency
+// This lines changes system clock frequency
 	RCC_OscInitStruct.MSIClockRange = RCC_MSIRANGE_7;
 	RCC_OscInitStruct.PLL.PLLState = RCC_PLL_NONE;
 	if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
