@@ -1,4 +1,6 @@
-# CSE-190 WI25 Project 3
+# Team 20 CSE-190 WI25 Project 3
+* Group Member: Yu-Heng Lin and Linfeng Zhang
+* Our Privtag name is PTAG20
 
 This project adds low-energy radio communication (using BLE) to your project. It has 3 sections
 
