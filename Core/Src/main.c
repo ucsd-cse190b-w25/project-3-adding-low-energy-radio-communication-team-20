@@ -34,7 +34,7 @@
 
 // utils for formatting message that's sending to phone
 #define PTAG20_FORMAT "PTAG20 LOST %d\'s"
-//#define TEST_ENV
+#define TEST_ENV
 
 #define MAX_ACCELERATION_RANGE 18000
 #define MIN_ACCELERATION_RANGE 15000
@@ -185,8 +185,8 @@ int main(void)
 			// every 10s, send a message
 			if (ten_seconds_flag)
 			{
-				// Send a string to the NORDIC UART service, remember to not include the newline
-				sec_lost = ten_seconds_count * 10;
+				// minus one because it got incremented first
+				sec_lost = (ten_seconds_count - 1) * 10;
 				snprintf((char*) buffer, sizeof(buffer), PTAG20_FORMAT, sec_lost);
 				updateCharValue(NORDIC_UART_SERVICE_HANDLE, READ_CHAR_HANDLE, 0, strlen((char*) buffer), buffer);
 				ten_seconds_flag = 0;
