@@ -34,7 +34,7 @@
 
 // utils for formatting message that's sending to phone
 #define PTAG20_FORMAT "PTAG20 LOST %d\'s"
-#define TEST_ENV
+//#define TEST_ENV
 
 #define MAX_ACCELERATION_RANGE 18000
 #define MIN_ACCELERATION_RANGE 15000
