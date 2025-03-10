@@ -13,16 +13,9 @@ void i2c_init()
 	RCC->APB1ENR1 |= RCC_APB1ENR1_I2C2EN;
 	RCC->AHB2ENR |= RCC_AHB2ENR_GPIOBEN;
 
-	// Enable HSI16 clock
-	RCC->CR |= RCC_CR_HSION;
-	// Wait for the HSI clock to be ready
-	while (!(RCC->CR & RCC_CR_HSIRDY))
-	{
-	}
-
-	// Enable 16M HZ clock source
+	// Enable 8M HZ clock source
 	RCC->CCIPR &= ~RCC_CCIPR_I2C2SEL;
-	RCC->CCIPR |= RCC_CCIPR_I2C2SEL_1;
+	RCC->CCIPR |= RCC_CCIPR_I2C2SEL_0;
 
 	// Disable I2C2
 	I2C2->CR1 &= ~I2C_CR1_PE;
@@ -57,11 +50,11 @@ void i2c_init()
 	GPIOB->AFR[1] &= ~GPIO_AFRH_AFSEL11;
 	GPIOB->AFR[1] |= GPIO_AFRH_AFSEL11_2;
 
-	// I2C 400K HZ baud rate, with clock source being HSI 16M HZ, and example in page 1304
+	// I2C 400K HZ baud rate, with clock source being system clock 8M HZ, and example in page 1304
 	I2C2->TIMINGR = 0;
 	// Setting SCLL, SCLH, SDADEL, SCLDEL, PRESC bits
-	I2C2->TIMINGR = 0x9 | (0x3 << 8) | (0x2 << 16) | (0x3 << 20) | (0x1 << 28);
-
+//	I2C2->TIMINGR = 0x9 | (0x3 << 8) | (0x1 << 16) | (0x3 << 20) | (0x0 << 28);
+	I2C2->TIMINGR = 0xC7 | (0xC3 << 8) | (0x2 << 16) | (0x4 << 20) | (0x1 << 28);
 	// Enable I2C2
 	I2C2->CR1 |= I2C_CR1_PE;
 
@@ -69,6 +62,10 @@ void i2c_init()
 
 uint8_t i2c_transaction(uint8_t address, uint8_t dir, uint8_t *data, uint8_t len)
 {
+	// turn on I2C RCC
+	RCC->APB1ENR1 |= RCC_APB1ENR1_I2C2EN;
+	RCC->AHB2ENR |= RCC_AHB2ENR_GPIOBEN;
+
 	// Enable 7-bit addressing mode
 	I2C2->CR2 &= ~I2C_CR2_ADD10;
 
@@ -116,5 +113,9 @@ uint8_t i2c_transaction(uint8_t address, uint8_t dir, uint8_t *data, uint8_t len
 			data[i] = I2C2->RXDR;
 		}
 	}
+
+	// turn off I2C RCC
+	RCC->APB1ENR1 &= ~RCC_APB1ENR1_I2C2EN;
+	RCC->AHB2ENR &= ~RCC_AHB2ENR_GPIOBEN;
 	return 0;
 }

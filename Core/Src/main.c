@@ -221,9 +221,11 @@ int main(void)
 		// put into sleep mode
 		printf("Entering Sleep mode...\r\n");
 //		SCB->SCR |= SCB_SCR_SLEEPDEEP_Msk;
+		__disable_irq();
 		HAL_SuspendTick();
 		__WFI();
 		HAL_ResumeTick();
+		__enable_irq();
 //		SCB->SCR &= ~SCB_SCR_SLEEPDEEP_Msk;
 		printf("Woke up from Sleep mode!\r\n");
 	}
