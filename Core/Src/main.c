@@ -38,15 +38,20 @@
 
 #define MAX_ACCELERATION_RANGE 18000
 #define MIN_ACCELERATION_RANGE 15000
-#define TIMER_PERIOD 50
+// change timer_period as needed, unit is ms
+#define TIMER_PERIOD 10000
 #define BUFFER_SZ 20
-#define TEN_SECONDS_DIV 200
+
+// Calculation: TEN_SECONDS_DIV = 10000 / TIMER_PERIOD
+#define TEN_SECONDS_DIV 1
 
 // adjust to 20s for lost mode in TEST ENV
+// Calculation: for 60s, LOST_COUNT_START = 60000 / TIMER_PERIOD
+// 				for 20s, LOST_COUNT_START = 20000 / TIMER_PERIOD
 #ifdef TEST_ENV
-#define LOST_COUNT_START_BLINK 400
+#define LOST_COUNT_START 2
 #else
-#define LOST_COUNT_START_BLINK 1200
+#define LOST_COUNT_START 6
 #endif
 
 // declare it as volatile to avoid compiler optimization
@@ -74,14 +79,9 @@ int _write(int file, char *ptr, int len)
 void TIM2_IRQHandler()
 {
 	// only doing count update in the interrupt handler
-	// if it's within the range, then it's not moving, increment the lost_count by 1
-	if (magnitude <= MAX_ACCELERATION_RANGE && magnitude >= MIN_ACCELERATION_RANGE)
-		lost_count++;
-	else
-		lost_count = 0;
 
 	// only start counting when it's lost for over 60 seconds
-	if (lost_count >= LOST_COUNT_START_BLINK)
+	if (lost_count >= LOST_COUNT_START)
 	{
 		// every 10S, turn the flag to 1, 50ms counting 200 times is 10s
 		if (count % TEN_SECONDS_DIV == 0)
@@ -92,6 +92,8 @@ void TIM2_IRQHandler()
 		count++;
 	}
 
+	// increment count no matter what, if it's stationary we can detect it in the main loop and reset it to 0
+	lost_count++;
 	// clearing the interrupt bit
 	if (TIM2->SR & TIM_SR_UIF)
 		TIM2->SR &= ~TIM_SR_UIF;
@@ -142,7 +144,6 @@ int main(void)
 
 	ble_init();
 	HAL_Delay(10);
-	uint8_t nonDiscoverable = 0;
 
 	// init LED, timer, i2c, and lsm6dsl
 	leds_init();
@@ -159,10 +160,6 @@ int main(void)
 
 	while (1)
 	{
-		// capture connection handler
-		if (!nonDiscoverable && HAL_GPIO_ReadPin(BLE_INT_GPIO_Port, BLE_INT_Pin))
-			catchBLE();
-
 		// read the raw x y z acceleration value, and compute its magnitude
 		lsm6dsl_read_xyz(&x, &y, &z);
 		xs = x * x;
@@ -170,10 +167,13 @@ int main(void)
 		zs = z * z;
 		sqrt_sum = xs + ys + zs;
 		magnitude = fast_sqrt(sqrt_sum);
+		// if it's not within the range, then it's moving, reset the lost_count to 0
+		if (!(magnitude <= MAX_ACCELERATION_RANGE && magnitude >= MIN_ACCELERATION_RANGE))
+			lost_count = 0;
 
 		// the lost detection check is in the tim2 interrupt handler
-		// if it's over 60 seconds, it's lost. Each timer tick is 50ms, to be 60s, it has to tick 1200 times
-		if (lost_count >= LOST_COUNT_START_BLINK)
+		// if it's over 60 seconds, it's lost. Each timer tick is 10000ms, to be 60s, it has to tick 6 times
+		if (lost_count >= LOST_COUNT_START)
 		{
 			// set it to be discoverable
 			if (!discoverable_flag)
@@ -182,6 +182,9 @@ int main(void)
 				discoverable_flag = 1;
 			}
 
+			// capture connection handler
+			if (HAL_GPIO_ReadPin(BLE_INT_GPIO_Port, BLE_INT_Pin))
+				catchBLE();
 			// every 10s, send a message
 			if (ten_seconds_flag)
 			{
@@ -208,13 +211,22 @@ int main(void)
 				disconnectBLE();
 				setDiscoverability(0);
 				discoverable_flag = 0;
+
+				// Put BLE into standby mode
+				standbyBle();
 			}
 			// if not lost turn off LED
 			leds_set(0);
 		}
-
 		// Wait for interrupt, only uncomment if low power is needed
-		//__WFI();
+		// put into sleep mode
+		printf("Entering Sleep mode...\r\n");
+//		SCB->SCR |= SCB_SCR_SLEEPDEEP_Msk;
+		HAL_SuspendTick();
+		__WFI();
+		HAL_ResumeTick();
+//		SCB->SCR &= ~SCB_SCR_SLEEPDEEP_Msk;
+		printf("Woke up from Sleep mode!\r\n");
 	}
 }
 
