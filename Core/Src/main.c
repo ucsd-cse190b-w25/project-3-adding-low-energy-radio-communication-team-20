@@ -34,7 +34,7 @@
 
 // utils for formatting message that's sending to phone
 #define PTAG20_FORMAT "PTAG20 LOST %d\'s"
-//#define TEST_ENV
+#define TEST_ENV
 
 #define MAX_ACCELERATION_RANGE 18000
 #define MIN_ACCELERATION_RANGE 15000
@@ -81,7 +81,7 @@ void TIM2_IRQHandler()
 	// only doing count update in the interrupt handler
 
 	// only start counting when it's lost for over 60 seconds
-	if (lost_count >= LOST_COUNT_START)
+	if (lost_count > LOST_COUNT_START)
 	{
 		// every 10S, turn the flag to 1, 50ms counting 200 times is 10s
 		if (count % TEN_SECONDS_DIV == 0)
@@ -173,8 +173,10 @@ int main(void)
 
 		// the lost detection check is in the tim2 interrupt handler
 		// if it's over 60 seconds, it's lost. Each timer tick is 10000ms, to be 60s, it has to tick 6 times
-		if (lost_count >= LOST_COUNT_START)
+		if (lost_count > LOST_COUNT_START)
 		{
+			printf("Lost count:%d\n", lost_count);
+
 			// set it to be discoverable
 			if (!discoverable_flag)
 			{
@@ -188,8 +190,7 @@ int main(void)
 			// every 10s, send a message
 			if (ten_seconds_flag)
 			{
-				// minus one because it got incremented first
-				sec_lost = (ten_seconds_count - 1) * 10;
+				sec_lost = (ten_seconds_count) * 10;
 				snprintf((char*) buffer, sizeof(buffer), PTAG20_FORMAT, sec_lost);
 				updateCharValue(NORDIC_UART_SERVICE_HANDLE, READ_CHAR_HANDLE, 0, strlen((char*) buffer), buffer);
 				ten_seconds_flag = 0;
