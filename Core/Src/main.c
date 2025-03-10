@@ -175,8 +175,6 @@ int main(void)
 		// if it's over 60 seconds, it's lost. Each timer tick is 10000ms, to be 60s, it has to tick 6 times
 		if (lost_count > LOST_COUNT_START)
 		{
-			printf("Lost count:%d\n", lost_count);
-
 			// set it to be discoverable
 			if (!discoverable_flag)
 			{
