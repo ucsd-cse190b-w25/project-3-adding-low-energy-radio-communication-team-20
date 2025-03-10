@@ -121,6 +121,26 @@ static uint32_t fast_sqrt(uint32_t x)
 	return res;
 }
 
+static void stop_clocks()
+{
+	// put into sleep mode
+	printf("Entering Sleep mode...\r\n");
+//		SCB->SCR |= SCB_SCR_SLEEPDEEP_Msk;
+	// Disable SPI3 clock
+	RCC->APB1ENR1 &= ~RCC_APB1ENR1_SPI3EN;
+	__disable_irq();
+	HAL_SuspendTick();
+}
+
+static void resume_clocks()
+{
+	HAL_ResumeTick();
+	__enable_irq();
+	RCC->APB1ENR1 |= RCC_APB1ENR1_SPI3EN;
+//		SCB->SCR &= ~SCB_SCR_SLEEPDEEP_Msk;
+	printf("Woke up from Sleep mode!\r\n");
+}
+
 /**
  * @brief  The application entry point.
  * @retval int
@@ -218,16 +238,9 @@ int main(void)
 			leds_set(0);
 		}
 		// Wait for interrupt, only uncomment if low power is needed
-		// put into sleep mode
-		printf("Entering Sleep mode...\r\n");
-//		SCB->SCR |= SCB_SCR_SLEEPDEEP_Msk;
-		__disable_irq();
-		HAL_SuspendTick();
+		stop_clocks();
 		__WFI();
-		HAL_ResumeTick();
-		__enable_irq();
-//		SCB->SCR &= ~SCB_SCR_SLEEPDEEP_Msk;
-		printf("Woke up from Sleep mode!\r\n");
+		resume_clocks();
 	}
 }
 
