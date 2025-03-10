@@ -53,6 +53,10 @@ void leds_set(uint8_t led)
 {
 	// TODO implement this
 
+	// Turn on RCC
+	RCC->AHB2ENR |= RCC_AHB2ENR_GPIOAEN;
+	RCC->AHB2ENR |= RCC_AHB2ENR_GPIOBEN;
+
 	// clear first
 	GPIOA->ODR &= ~GPIO_ODR_OD5;
 	GPIOB->ODR &= ~GPIO_ODR_OD14;
@@ -62,4 +66,8 @@ void leds_set(uint8_t led)
 		GPIOB->ODR |= GPIO_ODR_OD14;
 	if (led & 0b01)
 		GPIOA->ODR |= GPIO_ODR_OD5;
+
+	// Turn off RCC
+	RCC->AHB2ENR &= ~RCC_AHB2ENR_GPIOAEN;
+	RCC->AHB2ENR &= ~RCC_AHB2ENR_GPIOBEN;
 }
