@@ -50,10 +50,9 @@ void i2c_init()
 	GPIOB->AFR[1] &= ~GPIO_AFRH_AFSEL11;
 	GPIOB->AFR[1] |= GPIO_AFRH_AFSEL11_2;
 
-	// I2C 400K HZ baud rate, with clock source being system clock 8M HZ, and example in page 1304
+	// I2C 10K HZ baud rate, with clock source being system clock 8M HZ, and example in page 1304
 	I2C2->TIMINGR = 0;
 	// Setting SCLL, SCLH, SDADEL, SCLDEL, PRESC bits
-//	I2C2->TIMINGR = 0x9 | (0x3 << 8) | (0x1 << 16) | (0x3 << 20) | (0x0 << 28);
 	I2C2->TIMINGR = 0xC7 | (0xC3 << 8) | (0x2 << 16) | (0x4 << 20) | (0x1 << 28);
 	// Enable I2C2
 	I2C2->CR1 |= I2C_CR1_PE;
