@@ -66,3 +66,34 @@ void timer_set_ms(TIM_TypeDef *timer, uint16_t period_ms)
 	// reset counter to 0
 	timer->CNT = 0;
 }
+
+//void low_power_timer_init()
+//{
+//	// Enable the LPTIM1 clock
+//	RCC->APB1ENR1 |= RCC_APB1ENR1_LPTIM1EN;
+//
+//	// Select LSE (32.768 kHz) as clock source
+//	RCC->CCIPR &= ~RCC_CCIPR_LPTIM1SEL;
+//	RCC->CCIPR |= RCC_CCIPR_LPTIM1SEL_0;
+//
+//	// Disable LPTIM1
+//	LPTIM1->CR &= ~LPTIM_CR_ENABLE;
+//
+//	// Set ARR (Auto Reload Register) for desired timeout period
+//	LPTIM1->ARR = 32768 - 1; // 1-second period if LSE (32.768 kHz) is used
+//
+//	// Initialize counter to 0
+//	LPTIM1->CNT = 0;
+//
+//	// Enable interrupt
+//	NVIC_SetPriority(LPTIM1_IRQn, 0);
+//	NVIC_EnableIRQ(LPTIM1_IRQn);
+//	LPTIM1->IER |= LPTIM_IER_ARRMIE;
+//
+//	// enable the timer
+//	LPTIM1->CR |= LPTIM_CR_ENABLE;
+//
+//	// Start the timer in continuous mode
+//	LPTIM1->CR |= LPTIM_CR_CNTSTRT;
+//}
+
