@@ -37,7 +37,7 @@
 
 // utils for formatting message that's sending to phone
 #define PTAG20_FORMAT "PTAG20 LOST %d\'s"
-//#define TEST_ENV
+#define TEST_ENV
 
 #define MAX_ACCELERATION_RANGE 18000
 #define MIN_ACCELERATION_RANGE 15000
@@ -148,17 +148,20 @@ static uint32_t fast_sqrt(uint32_t x)
 
 static void pre_sleep()
 {
+	// Disable SPI3 clock
+	RCC->APB1ENR1 &= ~RCC_APB1ENR1_SPI3EN;
+
 	// put into sleep mode
 	printf("Entering Sleep mode...\r\n");
 
-	// Put into stop0 mode
+	// setting it to be low power run
+	PWR->CR1 |= PWR_CR1_LPR;
+	// Put into stop1 mode
 	SCB->SCR |= SCB_SCR_SLEEPDEEP_Msk;
 	PWR->CR1 &= ~PWR_CR1_LPMS;
-	PWR->CR1 |= PWR_CR1_LPMS_STOP0;
+	PWR->CR1 |= PWR_CR1_LPMS_STOP1;
 	RCC->CFGR &= ~RCC_CFGR_STOPWUCK;
 
-	// Disable SPI3 clock
-	RCC->APB1ENR1 &= ~RCC_APB1ENR1_SPI3EN;
 	__disable_irq();
 	HAL_SuspendTick();
 }
@@ -167,10 +170,17 @@ static void post_sleep()
 {
 	HAL_ResumeTick();
 	__enable_irq();
-	RCC->APB1ENR1 |= RCC_APB1ENR1_SPI3EN;
 	// Back to low-power run
+	PWR->CR1 &= ~PWR_CR1_LPMS_STOP1;
 	SCB->SCR &= ~SCB_SCR_SLEEPDEEP_Msk;
 	printf("Woke up from Sleep mode!\r\n");
+
+	// turn on SPI3
+	RCC->APB1ENR1 |= RCC_APB1ENR1_SPI3EN;
+	// reset BLE
+	HAL_GPIO_WritePin(BLE_RESET_GPIO_Port, BLE_RESET_Pin, GPIO_PIN_RESET);
+	HAL_Delay(10);
+	HAL_GPIO_WritePin(BLE_RESET_GPIO_Port, BLE_RESET_Pin, GPIO_PIN_SET);
 }
 
 /**
@@ -231,6 +241,7 @@ int main(void)
 	RCC->APB2ENR &= ~RCC_APB2ENR_SYSCFGEN;
 	RCC->CR &= ~RCC_CR_HSEON;
 	RCC->CR &= ~RCC_CR_PLLON;
+	RCC->CR &= ~RCC_CR_HSION;
 
 	while (1)
 	{

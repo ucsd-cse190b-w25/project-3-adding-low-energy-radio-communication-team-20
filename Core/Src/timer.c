@@ -119,10 +119,10 @@ void LPTIM1_lowpower_timer_init()
 	// Software trigger (TRIGEN = 00)
 	LPTIM1->CFGR &= ~LPTIM_CFGR_TRIGEN;
 
-	// Set prescaler to 1/64
-	LPTIM1->CFGR |= (LPTIM_CFGR_PRESC_1 | LPTIM_CFGR_PRESC_2);
+	// Set prescaler to 1/ 128
+	LPTIM1->CFGR |= (LPTIM_CFGR_PRESC_0 | LPTIM_CFGR_PRESC_1 | LPTIM_CFGR_PRESC_2);
 
-	// Enable interrupt
+	// Enable interrupt.
 	LPTIM1->IER |= LPTIM_IER_ARRMIE;
 
 	NVIC_SetPriority(LPTIM1_IRQn, 0);
@@ -139,7 +139,7 @@ void LPTIM1_lowpower_timer_init()
 	}
 
 	// Set the ARR after enable, else we have error
-	LPTIM1->ARR = 4999;
+	LPTIM1->ARR = 2499;
 	// Send start
 	LPTIM1->CR |= LPTIM_CR_CNTSTRT;
 }
