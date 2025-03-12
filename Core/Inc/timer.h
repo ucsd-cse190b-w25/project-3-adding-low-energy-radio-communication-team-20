@@ -17,6 +17,6 @@ void timer_reset(TIM_TypeDef *timer);
 void timer_set_ms(TIM_TypeDef *timer, uint16_t period_ms);
 
 //// low power timer
-//void low_power_timer_init();
+void LPTIM1_lowpower_timer_init();
 
 #endif /* TIMER_H_ */

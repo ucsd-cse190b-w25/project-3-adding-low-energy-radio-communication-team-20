@@ -32,6 +32,9 @@
 #include <stdint.h>
 #include <stdio.h>
 
+// low power mode will use LPTIM1 instead of TIM2
+#define LOWPOWER
+
 // utils for formatting message that's sending to phone
 #define PTAG20_FORMAT "PTAG20 LOST %d\'s"
 #define TEST_ENV
@@ -56,7 +59,7 @@
 
 // declare it as volatile to avoid compiler optimization
 static volatile int count = 0, lost_count = 0, ten_seconds_count = 0, ten_seconds_flag = 0;
-static volatile int sec_lost = 0, magnitude = 0, discoverable_flag = 1;
+static volatile int sec_lost = 0, magnitude = 0, discoverable_flag = 1, is_lost = 0;
 int dataAvailable = 0;
 
 SPI_HandleTypeDef hspi3;
@@ -78,25 +81,47 @@ int _write(int file, char *ptr, int len)
 
 void TIM2_IRQHandler()
 {
+
 	// only doing count update in the interrupt handler
 
 	// only start counting when it's lost for over 60 seconds
-	if (lost_count > LOST_COUNT_START)
+	if (lost_count >= LOST_COUNT_START)
 	{
-		// every 10S, turn the flag to 1, 50ms counting 200 times is 10s
-		if (count % TEN_SECONDS_DIV == 0)
-		{
-			ten_seconds_count++;
-			ten_seconds_flag = 1;
-		}
+		// every 10S, turn the flag to 1
+		ten_seconds_count++;
+		ten_seconds_flag = 1;
 		count++;
+		is_lost = 1;
 	}
 
 	// increment count no matter what, if it's stationary we can detect it in the main loop and reset it to 0
 	lost_count++;
+
 	// clearing the interrupt bit
 	if (TIM2->SR & TIM_SR_UIF)
 		TIM2->SR &= ~TIM_SR_UIF;
+}
+
+void LPTIM1_IRQHandler()
+{
+	// only doing count update in the interrupt handler
+
+	// increment count no matter what, if it's stationary we can detect it in the main loop and reset it to 0
+	lost_count++;
+
+	// only start counting when it's lost for over 60 seconds
+	if (lost_count >= LOST_COUNT_START)
+	{
+		// every 10S, turn the flag to 1
+		ten_seconds_count++;
+		ten_seconds_flag = 1;
+		count++;
+		is_lost = 1;
+	}
+
+	// clear interrupt bit
+	if (LPTIM1->ISR & LPTIM_ISR_ARRM)
+		LPTIM1->ICR |= LPTIM_ICR_ARRMCF;
 }
 
 // Fast Square Root Algorithm, it will compute the square root of x
@@ -121,18 +146,19 @@ static uint32_t fast_sqrt(uint32_t x)
 	return res;
 }
 
-static void stop_clocks()
+static void pre_sleep()
 {
 	// put into sleep mode
 	printf("Entering Sleep mode...\r\n");
 //		SCB->SCR |= SCB_SCR_SLEEPDEEP_Msk;
-	// Disable SPI3 clock
+
+// Disable SPI3 clock
 	RCC->APB1ENR1 &= ~RCC_APB1ENR1_SPI3EN;
 	__disable_irq();
 	HAL_SuspendTick();
 }
 
-static void resume_clocks()
+static void post_sleep()
 {
 	HAL_ResumeTick();
 	__enable_irq();
@@ -147,6 +173,13 @@ static void resume_clocks()
  */
 int main(void)
 {
+	// turn off all unused RCC
+	RCC->APB1ENR1 = 0;
+	RCC->APB1ENR2 = 0;
+	RCC->AHB2ENR = 0;
+	RCC->AHB3ENR = 0;
+	RCC->APB2ENR = 0;
+
 	/* Reset of all peripherals, Initializes the Flash interface and the Systick. */
 	HAL_Init();
 
@@ -165,18 +198,33 @@ int main(void)
 	ble_init();
 	HAL_Delay(10);
 
-	// init LED, timer, i2c, and lsm6dsl
+	// init LED, timer/low power timer, i2c, and lsm6dsl
 	leds_init();
-	timer_init(TIM2);
 	lsm6dsl_init();
 
-	// set the period in ms
+	// set the timer
+#ifdef LOWPOWER
+	LPTIM1_lowpower_timer_init();
+#else
+	timer_init(TIM2);
 	timer_set_ms(TIM2, TIMER_PERIOD);
+	timer_reset(TIM2);
+#endif
+
+	// for accelerometer variables
 	int16_t x = 0, y = 0, z = 0;
 	long long xs = 0, ys = 0, zs = 0, sqrt_sum = 0;
 
 	// for storing message
 	unsigned char buffer[BUFFER_SZ];
+
+	// setting it to be low power run
+	PWR->CR1 |= PWR_CR1_LPR;
+
+	// turn off all unused RCC. Disable the SYSCFG, COMP, and VREFBUF clocks
+	RCC->APB2ENR &= ~RCC_APB2ENR_SYSCFGEN;
+	RCC->CR &= ~RCC_CR_HSEON;
+	RCC->CR &= ~RCC_CR_PLLON;
 
 	while (1)
 	{
@@ -187,13 +235,16 @@ int main(void)
 		zs = z * z;
 		sqrt_sum = xs + ys + zs;
 		magnitude = fast_sqrt(sqrt_sum);
-		// if it's not within the range, then it's moving, reset the lost_count to 0
+		// if it's not within the range, then it's moving, reset the lost_count to 0, and the is_lost flag to 0
 		if (!(magnitude <= MAX_ACCELERATION_RANGE && magnitude >= MIN_ACCELERATION_RANGE))
+		{
 			lost_count = 0;
+			is_lost = 0;
+		}
 
 		// the lost detection check is in the tim2 interrupt handler
-		// if it's over 60 seconds, it's lost. Each timer tick is 10000ms, to be 60s, it has to tick 6 times
-		if (lost_count > LOST_COUNT_START)
+		// is_lost flag is set in the interrupt handler, and is reset in the magnitude check above
+		if (is_lost)
 		{
 			// set it to be discoverable
 			if (!discoverable_flag)
@@ -205,10 +256,11 @@ int main(void)
 			// capture connection handler
 			if (HAL_GPIO_ReadPin(BLE_INT_GPIO_Port, BLE_INT_Pin))
 				catchBLE();
+
 			// every 10s, send a message
 			if (ten_seconds_flag)
 			{
-				sec_lost = (ten_seconds_count) * 10;
+				sec_lost = (ten_seconds_count - 1) * 10;
 				snprintf((char*) buffer, sizeof(buffer), PTAG20_FORMAT, sec_lost);
 				updateCharValue(NORDIC_UART_SERVICE_HANDLE, READ_CHAR_HANDLE, 0, strlen((char*) buffer), buffer);
 				ten_seconds_flag = 0;
@@ -238,9 +290,9 @@ int main(void)
 			leds_set(0);
 		}
 		// Wait for interrupt, only uncomment if low power is needed
-		stop_clocks();
+		pre_sleep();
 		__WFI();
-		resume_clocks();
+		post_sleep();
 	}
 }
 
