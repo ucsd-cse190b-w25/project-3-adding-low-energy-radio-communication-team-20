@@ -37,7 +37,7 @@
 
 // utils for formatting message that's sending to phone
 #define PTAG20_FORMAT "PTAG20 LOST %d\'s"
-#define TEST_ENV
+//#define TEST_ENV
 
 #define MAX_ACCELERATION_RANGE 18000
 #define MIN_ACCELERATION_RANGE 15000
@@ -150,9 +150,14 @@ static void pre_sleep()
 {
 	// put into sleep mode
 	printf("Entering Sleep mode...\r\n");
-//		SCB->SCR |= SCB_SCR_SLEEPDEEP_Msk;
 
-// Disable SPI3 clock
+	// Put into stop0 mode
+	SCB->SCR |= SCB_SCR_SLEEPDEEP_Msk;
+	PWR->CR1 &= ~PWR_CR1_LPMS;
+	PWR->CR1 |= PWR_CR1_LPMS_STOP0;
+	RCC->CFGR &= ~RCC_CFGR_STOPWUCK;
+
+	// Disable SPI3 clock
 	RCC->APB1ENR1 &= ~RCC_APB1ENR1_SPI3EN;
 	__disable_irq();
 	HAL_SuspendTick();
@@ -163,7 +168,8 @@ static void post_sleep()
 	HAL_ResumeTick();
 	__enable_irq();
 	RCC->APB1ENR1 |= RCC_APB1ENR1_SPI3EN;
-//		SCB->SCR &= ~SCB_SCR_SLEEPDEEP_Msk;
+	// Back to low-power run
+	SCB->SCR &= ~SCB_SCR_SLEEPDEEP_Msk;
 	printf("Woke up from Sleep mode!\r\n");
 }
 
