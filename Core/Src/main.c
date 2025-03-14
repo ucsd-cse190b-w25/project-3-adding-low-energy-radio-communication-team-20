@@ -146,61 +146,12 @@ static uint32_t fast_sqrt(uint32_t x)
 	return res;
 }
 
-static void pre_sleep()
-{
-	// turn off RCC
-	RCC->APB1ENR1 &= ~RCC_APB1ENR1_SPI3EN;
-
-	// put into sleep mode
-	printf("Entering Sleep mode...\r\n");
-
-	// setting it to be normal run
-	PWR->CR1 &= ~PWR_CR1_LPR;
-	// Put into stop2 mode
-	SCB->SCR |= SCB_SCR_SLEEPDEEP_Msk;
-	PWR->CR1 &= ~PWR_CR1_LPMS;
-	PWR->CR1 |= PWR_CR1_LPMS_STOP2;
-	RCC->CFGR &= ~RCC_CFGR_STOPWUCK;
-
-	__disable_irq();
-	HAL_SuspendTick();
-}
-
-static void post_sleep()
-{
-	HAL_ResumeTick();
-	__enable_irq();
-
-	// clear sleepdeep bit
-	SCB->SCR &= ~SCB_SCR_SLEEPDEEP_Msk;
-	printf("Woke up from Sleep mode!\r\n");
-
-	// Back to low-power run
-	PWR->CR1 &= ~PWR_CR1_LPMS;
-	PWR->CR1 |= PWR_CR1_LPR;
-
-	// turn on RCC
-	RCC->APB1ENR1 |= RCC_APB1ENR1_SPI3EN;
-
-	// reset BLE
-	HAL_GPIO_WritePin(BLE_RESET_GPIO_Port, BLE_RESET_Pin, GPIO_PIN_RESET);
-	HAL_Delay(10);
-	HAL_GPIO_WritePin(BLE_RESET_GPIO_Port, BLE_RESET_Pin, GPIO_PIN_SET);
-}
-
 /**
  * @brief  The application entry point.
  * @retval int
  */
 int main(void)
 {
-	// turn off all unused RCC
-	RCC->APB1ENR1 = 0;
-	RCC->APB1ENR2 = 0;
-	RCC->AHB2ENR = 0;
-	RCC->AHB3ENR = 0;
-	RCC->APB2ENR = 0;
-
 	/* Reset of all peripherals, Initializes the Flash interface and the Systick. */
 	HAL_Init();
 
@@ -322,9 +273,42 @@ int main(void)
 			}
 		}
 		// Wait for interrupt, only uncomment if low power is needed
-		pre_sleep();
+		printf("Entering Sleep mode...\r\n");
+		__HAL_RCC_MSI_RANGE_CONFIG(RCC_MSIRANGE_0);
+		// turn off RCC
+		RCC->APB1ENR1 &= ~RCC_APB1ENR1_SPI3EN;
+
+		// setting it to be normal run
+		PWR->CR1 &= ~PWR_CR1_LPR;
+		// Put into stop2 mode
+		SCB->SCR |= SCB_SCR_SLEEPDEEP_Msk;
+		PWR->CR1 &= ~PWR_CR1_LPMS;
+		PWR->CR1 |= PWR_CR1_LPMS_STOP2;
+		RCC->CFGR &= ~RCC_CFGR_STOPWUCK;
+		__disable_irq();
+		HAL_SuspendTick();
+
 		__WFI();
-		post_sleep();
+
+		HAL_ResumeTick();
+		__HAL_RCC_MSI_RANGE_CONFIG(RCC_MSIRANGE_7);
+		__enable_irq();
+
+		// clear sleepdeep bit
+		SCB->SCR &= ~SCB_SCR_SLEEPDEEP_Msk;
+		printf("Woke up from Sleep mode!\r\n");
+
+		// Back to low-power run
+		PWR->CR1 &= ~PWR_CR1_LPMS;
+		PWR->CR1 |= PWR_CR1_LPR;
+
+		// turn on RCC
+		RCC->APB1ENR1 |= RCC_APB1ENR1_SPI3EN;
+
+		// reset BLE
+		HAL_GPIO_WritePin(BLE_RESET_GPIO_Port, BLE_RESET_Pin, GPIO_PIN_RESET);
+		HAL_Delay(10);
+		HAL_GPIO_WritePin(BLE_RESET_GPIO_Port, BLE_RESET_Pin, GPIO_PIN_SET);
 	}
 }
 
