@@ -7,6 +7,7 @@
 
 /* Include memory map of our MCU */
 #include <stm32l475xx.h>
+#include "stm32l4xx_hal.h"
 #include "leds.h"
 
 void leds_init()
@@ -57,6 +58,12 @@ void leds_set(uint8_t led)
 	RCC->AHB2ENR |= RCC_AHB2ENR_GPIOAEN;
 	RCC->AHB2ENR |= RCC_AHB2ENR_GPIOBEN;
 
+	// put into output mode
+	GPIOA->MODER &= ~GPIO_MODER_MODE5;
+	GPIOA->MODER |= GPIO_MODER_MODE5_0;
+	GPIOB->MODER &= ~GPIO_MODER_MODE14;
+	GPIOB->MODER |= GPIO_MODER_MODE14_0;
+
 	// clear first
 	GPIOA->ODR &= ~GPIO_ODR_OD5;
 	GPIOB->ODR &= ~GPIO_ODR_OD14;
@@ -66,6 +73,29 @@ void leds_set(uint8_t led)
 		GPIOB->ODR |= GPIO_ODR_OD14;
 	if (led & 0b01)
 		GPIOA->ODR |= GPIO_ODR_OD5;
+
+	// Put into analog mode to save power
+	GPIOA->MODER &= ~GPIO_MODER_MODE5;
+	GPIOA->MODER |= (GPIO_MODER_MODE5_0 | GPIO_MODER_MODE5_1);
+	GPIOB->MODER &= ~GPIO_MODER_MODE14;
+	GPIOB->MODER |= (GPIO_MODER_MODE14_0 | GPIO_MODER_MODE14_1);
+
+	// Turn off RCC
+	RCC->AHB2ENR &= ~RCC_AHB2ENR_GPIOAEN;
+	RCC->AHB2ENR &= ~RCC_AHB2ENR_GPIOBEN;
+}
+
+void gpio_set_analog()
+{
+	// Turn on RCC
+	RCC->AHB2ENR |= RCC_AHB2ENR_GPIOAEN;
+	RCC->AHB2ENR |= RCC_AHB2ENR_GPIOBEN;
+
+	// Put into analog mode to save power
+	GPIOA->MODER &= ~GPIO_MODER_MODE5;
+	GPIOA->MODER |= (GPIO_MODER_MODE5_0 | GPIO_MODER_MODE5_1);
+	GPIOB->MODER &= ~GPIO_MODER_MODE14;
+	GPIOB->MODER |= (GPIO_MODER_MODE14_0 | GPIO_MODER_MODE14_1);
 
 	// Turn off RCC
 	RCC->AHB2ENR &= ~RCC_AHB2ENR_GPIOAEN;

@@ -10,5 +10,6 @@
 
 void leds_init();
 void leds_set(uint8_t led);
+void gpio_set_analog();
 
 #endif /* LEDS_H_ */
